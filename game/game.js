@@ -7,6 +7,7 @@
   let zIndexCounter = 100;
   let isDragging = false;
   let cleanupConveyors = null;
+  let cleanupDrawerScrollbar = null;
 
   const stage = document.getElementById('stage');
   const model = document.getElementById('model');
@@ -169,6 +170,7 @@
   // --- Mobile drawer scrollbar (XP style) ---
   function setupDrawerScrollbar() {
     if (!drawerScrollbar || !drawerScrollbarThumb || !closetDrawer || !closetDrawerContent) return;
+    if (cleanupDrawerScrollbar) cleanupDrawerScrollbar();
 
     const state = {
       dragging: false,
@@ -177,6 +179,13 @@
       pointerId: null,
       trackRect: null,
       thumbW: 0,
+    };
+
+    const listeners = [];
+    const addListener = (el, evt, fn, opts) => {
+      if (!el) return;
+      el.addEventListener(evt, fn, opts);
+      listeners.push(() => el.removeEventListener(evt, fn, opts));
     };
 
     const minThumb = 56;
@@ -226,9 +235,11 @@
     };
 
     // Keep thumb in sync with auto-scroll and manual scroll
-    closetDrawer.addEventListener('scroll', update, { passive: true });
-    window.addEventListener('resize', update);
-    update();
+    addListener(closetDrawer, 'scroll', update, { passive: true });
+    addListener(window, 'resize', update);
+    // Also run once after images/layout settle (fixes "scrollbar shows late" on mobile)
+    addListener(window, 'load', update);
+    requestAnimationFrame(() => requestAnimationFrame(update));
 
     const onThumbDown = (e) => {
       if (!isMobileLayout()) return;
@@ -306,6 +317,52 @@
     drawerScrollbar.addEventListener('pointermove', onThumbMove);
     drawerScrollbar.addEventListener('pointerup', endThumbDrag);
     drawerScrollbar.addEventListener('pointercancel', endThumbDrag);
+
+    // Observe content changes so we can show the scrollbar as soon as overflow exists.
+    let ro = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => update());
+      try {
+        ro.observe(closetDrawer);
+        ro.observe(closetDrawerContent);
+        ro.observe(drawerScrollbar);
+      } catch {
+        // ignore
+      }
+    }
+
+    let mo = null;
+    const bindImgLoads = () => {
+      closetDrawerContent.querySelectorAll('img').forEach((im) => {
+        // Only bind once per element
+        if (im.dataset && im.dataset.sbBound === '1') return;
+        if (im.dataset) im.dataset.sbBound = '1';
+        addListener(im, 'load', update, { passive: true });
+        addListener(im, 'error', update, { passive: true });
+      });
+    };
+    bindImgLoads();
+    if (typeof MutationObserver !== 'undefined') {
+      mo = new MutationObserver(() => {
+        bindImgLoads();
+        update();
+      });
+      try {
+        mo.observe(closetDrawerContent, { childList: true, subtree: true });
+      } catch {
+        // ignore
+      }
+    }
+
+    // Initial paint
+    update();
+
+    cleanupDrawerScrollbar = () => {
+      try { ro?.disconnect(); } catch { /* ignore */ }
+      try { mo?.disconnect(); } catch { /* ignore */ }
+      listeners.forEach((fn) => fn());
+      cleanupDrawerScrollbar = null;
+    };
   }
 
   // --- Conveyor belt auto-scroll (infinite loop) ---
@@ -631,18 +688,19 @@
       }
     });
 
-    layoutCloset();
-    // Prepare stage centering/scale
-    computeScale();
-    positionTrashcan();
-    setupConveyors();
-    setupDrawerScrollbar();
-    window.addEventListener('resize', () => {
+    const refreshLayout = () => {
       layoutCloset();
       computeScale();
       positionTrashcan();
       setupConveyors();
       setupDrawerScrollbar();
+    };
+
+    refreshLayout();
+    window.addEventListener('resize', refreshLayout);
+    // Handle bfcache restores (common on iOS): recalc positions + scrollbar immediately.
+    window.addEventListener('pageshow', () => {
+      requestAnimationFrame(() => requestAnimationFrame(refreshLayout));
     });
 
     if (!model.complete) {
@@ -653,6 +711,8 @@
       });
     } else {
       initModelBaseSize();
+      // When cached, initModelBaseSize runs immediately; ensure trashcan repositions too.
+      positionTrashcan();
     }
 
     // Ensure every item knows its "home" group (for returning from the stage).
