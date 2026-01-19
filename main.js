@@ -3,6 +3,20 @@
 
   const copBtn = document.getElementById('cop-btn');
 
+  const getCopBubbleEl = () => {
+    if (!(copBtn instanceof HTMLElement)) return null;
+    const bubble = copBtn.querySelector?.('.cop-bubble');
+    return bubble instanceof HTMLElement ? bubble : null;
+  };
+
+  const setBubbleVisible = (isVisible) => {
+    const bubble = getCopBubbleEl();
+    if (!bubble) return;
+    // Force visibility via inline styles (don’t rely on hover media queries / attribute selectors).
+    bubble.style.opacity = isVisible ? '1' : '0';
+    bubble.style.transform = isVisible ? 'scale(1)' : 'scale(0.98)';
+  };
+
   const bindCopBubble = () => {
     if (!(copBtn instanceof HTMLButtonElement)) return;
     if (copBtn.dataset.bound === '1') return;
@@ -12,6 +26,9 @@
     const toggle = () => {
       const isOpen = copBtn.getAttribute('aria-expanded') === 'true';
       copBtn.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+      const nowOpen = copBtn.getAttribute('aria-expanded') === 'true';
+      if (nowOpen) positionCopBubble();
+      setBubbleVisible(nowOpen);
     };
 
     // Support BOTH: desktop hover (CSS) and click-to-toggle (requested).
@@ -20,15 +37,41 @@
       toggle();
     });
 
+    // Also support hover/focus even if the hover media query doesn’t match.
+    copBtn.addEventListener('mouseenter', () => {
+      if (copBtn.getAttribute('aria-expanded') === 'true') return;
+      positionCopBubble();
+      setBubbleVisible(true);
+    });
+    copBtn.addEventListener('mouseleave', () => {
+      if (copBtn.getAttribute('aria-expanded') === 'true') return;
+      setBubbleVisible(false);
+    });
+    copBtn.addEventListener('focusin', () => {
+      positionCopBubble();
+      setBubbleVisible(true);
+    });
+    copBtn.addEventListener('focusout', () => {
+      if (copBtn.getAttribute('aria-expanded') === 'true') return;
+      setBubbleVisible(false);
+    });
+
     // close when clicking/tapping anywhere else
-    window.addEventListener('click', close);
+    window.addEventListener('click', () => {
+      close();
+      setBubbleVisible(false);
+    });
     // close on escape
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') close();
+      if (e.key === 'Escape') {
+        close();
+        setBubbleVisible(false);
+      }
     });
 
     // Default closed on load
     copBtn.setAttribute('aria-expanded', 'false');
+    setBubbleVisible(false);
   };
 
   const positionCopBubble = () => {

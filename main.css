@@ -43,6 +43,9 @@ body::before {
   margin: 0;
   position: fixed;
   inset: 0;
+  /* Important: the background image should never intercept clicks/hover meant for UI on top. */
+  pointer-events: none;
+  z-index: 1;
   /* Ensure we still respect iOS safe areas, but keep full coverage */
   padding:
     env(safe-area-inset-top, 0px)
@@ -58,13 +61,14 @@ body::before {
   height: 100%;
   object-fit: cover; /* fill the viewport */
   object-position: 50% 50%; /* JS overrides to keep flashing bbox visible */
+  pointer-events: none;
 }
 
 .cop-btn {
   position: fixed;
   left: calc(env(safe-area-inset-left, 0px) + 6px);
   bottom: 0; /* JS will align this to the news banner bottom edge */
-  z-index: 21; /* above banners */
+  z-index: 9999; /* above everything */
   width: auto;
   height: auto;
   max-width: min(46vw, 520px);
