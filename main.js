@@ -1,39 +1,87 @@
 (() => {
-  const img = document.querySelector('.poster__img');
-  const frame = document.querySelector('.poster__frame');
-  if (!img || !frame) return;
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-  // ---- Cop speech bubble toggle ----
   const copBtn = document.getElementById('cop-btn');
-  if (copBtn instanceof HTMLButtonElement && copBtn.dataset.bound !== '1') {
+
+  const bindCopBubble = () => {
+    if (!(copBtn instanceof HTMLButtonElement)) return;
+    if (copBtn.dataset.bound === '1') return;
     copBtn.dataset.bound = '1';
 
-    // Desktop uses hover; mobile uses click/tap.
-    const isCoarsePointer =
-      window.matchMedia &&
-      (window.matchMedia('(pointer: coarse)').matches || window.matchMedia('(hover: none)').matches);
+    const close = () => copBtn.setAttribute('aria-expanded', 'false');
+    const toggle = () => {
+      const isOpen = copBtn.getAttribute('aria-expanded') === 'true';
+      copBtn.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+    };
 
-    if (isCoarsePointer) {
-      const close = () => copBtn.setAttribute('aria-expanded', 'false');
-      const toggle = () => {
-        const isOpen = copBtn.getAttribute('aria-expanded') === 'true';
-        copBtn.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
-      };
-      copBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        toggle();
-      });
-      // close when tapping anywhere else
-      window.addEventListener('click', close);
-      // close on escape (if a keyboard is present)
-      window.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') close();
-      });
-    } else {
-      // Ensure we don't get "stuck open" from a prior coarse-pointer session.
-      copBtn.setAttribute('aria-expanded', 'false');
+    // Support BOTH: desktop hover (CSS) and click-to-toggle (requested).
+    copBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggle();
+    });
+
+    // close when clicking/tapping anywhere else
+    window.addEventListener('click', close);
+    // close on escape
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') close();
+    });
+
+    // Default closed on load
+    copBtn.setAttribute('aria-expanded', 'false');
+  };
+
+  const positionCopBubble = () => {
+    if (!(copBtn instanceof HTMLElement)) return;
+    const bubble = copBtn.querySelector?.('.cop-bubble');
+    if (!(bubble instanceof HTMLElement)) return;
+
+    const copRect = copBtn.getBoundingClientRect();
+    if (copRect.width <= 0 || copRect.height <= 0) return;
+
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    // Measure bubble (works even when opacity is 0)
+    const bRect = bubble.getBoundingClientRect();
+    const bw = Math.max(1, bRect.width || 0);
+    const bh = Math.max(1, bRect.height || 0);
+
+    const pad = 8;
+    const gap = 16;
+
+    // Anchor near the cop's head (viewport coords)
+    const anchorX = copRect.left + copRect.width * 0.28;
+    const anchorY = copRect.top + copRect.height * 0.16;
+
+    // Prefer LEFT side of the head
+    let side = 'left';
+    let left = anchorX - bw - gap;
+    let top = anchorY - bh - gap;
+
+    // If left would go off-screen, flip to right side.
+    if (left < pad) {
+      side = 'right';
+      left = anchorX + gap;
     }
-  }
+
+    left = clamp(left, pad, vw - bw - pad);
+    top = clamp(top, pad, vh - bh - pad);
+
+    copBtn.dataset.bubbleSide = side;
+    bubble.style.left = `${Math.round(left)}px`;
+    bubble.style.top = `${Math.round(top)}px`;
+  };
+
+  // Bind + position ASAP (don’t depend on the background image load).
+  bindCopBubble();
+  requestAnimationFrame(positionCopBubble);
+  window.addEventListener('resize', () => requestAnimationFrame(positionCopBubble));
+
+  const img = document.querySelector('.poster__img');
+  const frame = document.querySelector('.poster__frame');
+  // If the background image isn’t present, we still keep the cop bubble behavior.
+  if (!img || !frame) return;
 
   // Key areas in ORIGINAL image pixels (x1,y1,x2,y2)
   // We keep these visible (and above the bottom news banner) while using object-fit: cover.
@@ -46,8 +94,6 @@
     { x1: 2048, y1: 968, x2: 2232, y2: 1232 },  // #3
     { x1: 1744, y1: 536, x2: 1880, y2: 728 },   // #4
   ];
-
-  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
   const unionBox = (boxes) => {
     let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
@@ -63,7 +109,11 @@
   const update = () => {
     const iw = img.naturalWidth;
     const ih = img.naturalHeight;
-    if (!iw || !ih) return;
+    if (!iw || !ih) {
+      // Still position the cop bubble even if the background image isn’t ready yet.
+      positionCopBubble();
+      return;
+    }
 
     const rect = img.getBoundingClientRect();
     const cw = rect.width;
@@ -189,48 +239,25 @@
       copImg.style.maxHeight = `${Math.floor(maxH)}px`;
 
       // ---- Keep the speech bubble fully on-screen ----
-      const bubble = cop.querySelector?.('.cop-bubble');
-      if (bubble instanceof HTMLElement) {
-        const copRect = cop.getBoundingClientRect();
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
-
-        // Anchor near the cop's head (in viewport coordinates)
-        const anchorX = copRect.left + copRect.width * 0.28;
-        const anchorY2 = copRect.top + copRect.height * 0.16;
-
-        // Measure bubble even when hidden (opacity 0 still has layout size)
-        const bRect = bubble.getBoundingClientRect();
-        const bw = Math.max(1, bRect.width);
-        const bh = Math.max(1, bRect.height);
-
-        const pad = 8;
-        const gap = 16;
-
-        // Prefer LEFT side of the head
-        let side = 'left';
-        let left = anchorX - bw - gap;
-        let top = anchorY2 - bh - gap;
-
-        // If left would go off-screen, flip to right side.
-        if (left < pad) {
-          side = 'right';
-          left = anchorX + gap;
-        }
-
-        // Clamp within viewport
-        left = clamp(left, pad, vw - bw - pad);
-        top = clamp(top, pad, vh - bh - pad);
-
-        cop.dataset.bubbleSide = side;
-        bubble.style.left = `${Math.round(left)}px`;
-        bubble.style.top = `${Math.round(top)}px`;
-      }
+      positionCopBubble();
     }
   };
 
-  if (img.complete) update();
-  img.addEventListener('load', update);
+  // Some browsers can report complete=true while naturalWidth is still 0 for a moment (esp. cached GIFs).
+  // Keep trying for a short window so hotspots + cop bubble positioning always initialize.
+  let tries = 0;
+  const tryInit = () => {
+    tries += 1;
+    update();
+    if (img.naturalWidth > 0 && img.naturalHeight > 0) return;
+    if (tries < 60) requestAnimationFrame(tryInit);
+  };
+
+  if (img.complete) {
+    requestAnimationFrame(tryInit);
+  } else {
+    img.addEventListener('load', () => requestAnimationFrame(tryInit), { once: true });
+  }
   window.addEventListener('resize', update);
 
   // ---- Caution tape: ensure the marquee is "full" at page load (no empty tape) ----
