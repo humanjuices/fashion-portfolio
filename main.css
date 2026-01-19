@@ -120,7 +120,7 @@ body::before {
   box-shadow: none;
   border: 0;
   opacity: 0;
-  pointer-events: none;
+  pointer-events: none; /* JS enables this only while visible so links can be tapped */
   transition: opacity 120ms ease, transform 120ms ease;
   white-space: pre-line; /* respect \n in JS textContent */
   z-index: 10020; /* above hotspots + cop */

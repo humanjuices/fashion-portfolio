@@ -65,6 +65,8 @@
     // Force visibility via inline styles (don’t rely on hover media queries / attribute selectors).
     bubble.style.opacity = isVisible ? '1' : '0';
     bubble.style.transform = isVisible ? 'scale(1)' : 'scale(0.98)';
+    // Allow clicking links only when visible.
+    bubble.style.pointerEvents = isVisible ? 'auto' : 'none';
   };
 
   const openBubble = () => {
@@ -89,15 +91,16 @@
     ensureBubbleTail();
     setBubbleText();
 
-    const isCoarsePointer =
-      window.matchMedia &&
-      (window.matchMedia('(pointer: coarse)').matches || window.matchMedia('(hover: none)').matches);
+    const isMobileView =
+      window.innerWidth <= 768 ||
+      (window.matchMedia &&
+        (window.matchMedia('(pointer: coarse)').matches || window.matchMedia('(hover: none)').matches));
 
     // Default hidden
     copBtn.setAttribute('aria-expanded', 'false');
     closeBubble();
 
-    if (isCoarsePointer) {
+    if (isMobileView) {
       // Mobile/tablet: tap to toggle bubble
       copBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -115,7 +118,9 @@
         'click',
         (e) => {
           if (!(e.target instanceof Node)) return;
+          const bubble = getCopBubbleEl();
           if (copBtn.contains(e.target)) return;
+          if (bubble && bubble.contains(e.target)) return;
           copBtn.setAttribute('aria-expanded', 'false');
           closeBubble();
         },
@@ -214,7 +219,16 @@
       // Scale with both distance-to-cop and bubble size, but keep it shorter.
       // (User feedback: the tail was too long across viewports.)
       const base = bw * 0.26;
-      const tailLen = clamp(Math.max(length * 0.55, base), 40, 170);
+      let tailLen = clamp(Math.max(length * 0.55, base), 40, 170);
+
+      if (isMobileView) {
+        // Mobile: keep tail a touch larger (it was getting too small).
+        tailLen = clamp(tailLen * 1.12, 52, 170);
+      } else if (window.innerWidth >= 1400) {
+        // Wide desktop: if the cop is visually smaller, scale the tail down so it still fits.
+        const copFactor = clamp(copRect.height / (window.innerHeight * 0.55), 0.55, 1);
+        tailLen = clamp(tailLen * copFactor, 34, 170);
+      }
 
       // Angle: tail image is "downwards" by default; rotate toward the cop.
       const angleRad = Math.atan2(dx, Math.max(1, dy)); // 0 = down
@@ -226,7 +240,8 @@
       tail.style.width = 'auto';
       // Mobile: don't rotate the PNG (user feedback: rotation looked wrong).
       // Desktop: rotate to "aim" toward the cop.
-      const rot = isMobileView ? 0 : angleDeg;
+      // On ultra-wide screens the "aim" angle can get extreme; clamp so it stays believable.
+      const rot = isMobileView ? 0 : clamp(angleDeg, -22, 22);
       tail.style.transform = `translateX(-50%) rotate(${rot.toFixed(2)}deg)`;
       tail.style.transformOrigin = 'top center';
 
@@ -404,6 +419,16 @@
       // On very wide viewports, the cop is far left while markers are far right, so we
       // should not shrink the cop based on markers that don't overlap horizontally.
       const copRectNow = cop.getBoundingClientRect();
+      // IMPORTANT: avoid oscillation. If we decide "overlaps X" based on the cop's current size,
+      // then changing the cop size can flip overlap on/off and cause glitchy resizing.
+      // Instead, test overlap against the cop's *max possible width* for this viewport.
+      const isMobileLayout = window.innerWidth <= 520;
+      const maxCopW = Math.min(
+        (isMobileLayout ? 0.74 : 0.46) * window.innerWidth,
+        isMobileLayout ? 560 : 520,
+      );
+      const copPotentialLeft = copRectNow.left;
+      const copPotentialRight = copRectNow.left + maxCopW;
       const overlapPadX = 18;
       let lowestRelevantHotspotBottom = 0;
       let sawAnyRelevant = false;
@@ -411,8 +436,8 @@
         const r = el.getBoundingClientRect();
         if (r.width <= 0 || r.height <= 0) return;
         const overlapsX =
-          r.right >= (copRectNow.left - overlapPadX) &&
-          r.left <= (copRectNow.right + overlapPadX);
+          r.right >= (copPotentialLeft - overlapPadX) &&
+          r.left <= (copPotentialRight + overlapPadX);
         if (!overlapsX) return;
         sawAnyRelevant = true;
         lowestRelevantHotspotBottom = Math.max(lowestRelevantHotspotBottom, r.bottom);
